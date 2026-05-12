@@ -1,3 +1,7 @@
+param(
+    [string]$LocalImagePath = ""
+)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -27,6 +31,34 @@ function Get-LatestUbuntuWslUrl {
 
 function Ensure-Directory([string]$Path) {
     New-Item -ItemType Directory -Force -Path $Path | Out-Null
+}
+
+function Find-ExistingUbuntuWslImage([string]$DirectoryPath) {
+    if (-not (Test-Path $DirectoryPath)) {
+        return $null
+    }
+
+    $candidates = Get-ChildItem -LiteralPath $DirectoryPath -Filter "ubuntu-24.04.*-wsl-amd64.wsl" -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending
+    if ($candidates.Count -gt 0) {
+        return $candidates[0].FullName
+    }
+    return $null
+}
+
+function Download-File([string]$Url, [string]$DestinationPath) {
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($null -ne $curl) {
+        Write-Host "Downloading with curl.exe to $DestinationPath"
+        & $curl.Source -L --retry 8 --retry-delay 5 --connect-timeout 30 -o $DestinationPath $Url
+        if ($LASTEXITCODE -ne 0) {
+            throw "curl.exe failed with exit code $LASTEXITCODE while downloading $Url"
+        }
+        return
+    }
+
+    Write-Host "Downloading with Invoke-WebRequest to $DestinationPath"
+    Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $DestinationPath -TimeoutSec 0
 }
 
 function Test-PendingReboot {
@@ -93,14 +125,23 @@ if ($LASTEXITCODE -ne 0) {
     throw "wsl --set-default-version 2 failed with exit code $LASTEXITCODE."
 }
 
-$imageInfo = Get-LatestUbuntuWslUrl
-$downloadPath = Join-Path $downloadDir $imageInfo.FileName
+$downloadPath = $null
 
-if (-not (Test-Path $downloadPath)) {
-    Write-Host "Downloading Ubuntu WSL image from $($imageInfo.Url)"
-    Invoke-WebRequest -UseBasicParsing -Uri $imageInfo.Url -OutFile $downloadPath
+if ($LocalImagePath) {
+    $resolvedLocalImagePath = Resolve-Path -LiteralPath $LocalImagePath -ErrorAction Stop
+    $downloadPath = $resolvedLocalImagePath.Path
+    Write-Host "Using manually provided Ubuntu WSL image at $downloadPath"
 } else {
-    Write-Host "Using existing Ubuntu WSL image at $downloadPath"
+    $existingImagePath = Find-ExistingUbuntuWslImage $downloadDir
+    if ($existingImagePath) {
+        $downloadPath = $existingImagePath
+        Write-Host "Using existing Ubuntu WSL image at $downloadPath"
+    } else {
+        $imageInfo = Get-LatestUbuntuWslUrl
+        $downloadPath = Join-Path $downloadDir $imageInfo.FileName
+        Write-Host "Downloading Ubuntu WSL image from $($imageInfo.Url)"
+        Download-File -Url $imageInfo.Url -DestinationPath $downloadPath
+    }
 }
 
 if (wsl.exe -l -q | Select-String -SimpleMatch "Ubuntu-24.04") {
