@@ -29,6 +29,7 @@ outputs/
 *.svg
 *.csv
 !data/samples/*.csv
+!2025.acl-long.1140.pdf
 
 # Large local assets must stay on D: and out of git
 assets/

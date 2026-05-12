@@ -3,7 +3,8 @@
 This repository contains an engineering-oriented reproduction of the MobiLoRA paper:
 
 - paper page: <https://aclanthology.org/2025.acl-long.1140/>
-- local PDF: [2025.acl-long.1140.pdf](./2025.acl-long.1140.pdf)
+- repository PDF: [2025.acl-long.1140.pdf](./2025.acl-long.1140.pdf)
+- paper PDF: <https://aclanthology.org/2025.acl-long.1140.pdf>
 
 The goal is not to patch the original SGLang runtime directly. Instead, this repo recreates the paper's core mechanisms in a lightweight, inspectable prototype that can run on a constrained Windows laptop through `WSL2 + Ubuntu 24.04 LTS`, while keeping every large artifact on `D:`.
 
