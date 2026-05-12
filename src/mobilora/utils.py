@@ -73,3 +73,33 @@ def safe_filename(text: str) -> str:
     invalid = '<>:"/\\|?*'
     sanitized = "".join("_" if char in invalid else char for char in text)
     return sanitized.strip().strip(".") or "output"
+
+
+def repo_cache_name(repo_id: str) -> str:
+    return repo_id.replace("/", "__").replace(".", "-")
+
+
+def directory_stats(path: Path, top_n: int = 5) -> dict[str, object]:
+    if not path.exists():
+        return {
+            "exists": False,
+            "file_count": 0,
+            "total_bytes": 0,
+            "largest_files": [],
+        }
+
+    files: list[Path] = [item for item in path.rglob("*") if item.is_file()]
+    file_sizes = sorted(
+        ((item.relative_to(path).as_posix(), item.stat().st_size) for item in files),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    return {
+        "exists": True,
+        "file_count": len(files),
+        "total_bytes": sum(size for _, size in file_sizes),
+        "largest_files": [
+            {"path": rel_path, "bytes": size}
+            for rel_path, size in file_sizes[:top_n]
+        ],
+    }

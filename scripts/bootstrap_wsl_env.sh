@@ -12,9 +12,19 @@ MINICONDA_INSTALLER="${MINICONDA_DIR_ON_D}/Miniconda3-latest-Linux-x86_64.sh"
 
 mkdir -p "${ASSET_ROOT}" "${HF_CACHE_DIR}" "${DATASETS_CACHE_DIR}" "${ADAPTERS_DIR}" "${MINICONDA_DIR_ON_D}" "${ASSET_ROOT}/bench_outputs"
 
-if ! command -v curl >/dev/null 2>&1; then
-  sudo apt-get update
-  sudo apt-get install -y curl git build-essential
+APT_PACKAGES=()
+command -v curl >/dev/null 2>&1 || APT_PACKAGES+=("curl")
+command -v git >/dev/null 2>&1 || APT_PACKAGES+=("git")
+command -v gcc >/dev/null 2>&1 || APT_PACKAGES+=("build-essential")
+
+if [ "${#APT_PACKAGES[@]}" -gt 0 ]; then
+  if [ "$(id -u)" -eq 0 ]; then
+    apt-get update
+    apt-get install -y "${APT_PACKAGES[@]}"
+  else
+    sudo apt-get update
+    sudo apt-get install -y "${APT_PACKAGES[@]}"
+  fi
 fi
 
 if [ ! -f "${MINICONDA_INSTALLER}" ]; then
@@ -26,6 +36,13 @@ if [ ! -d "${MINICONDA_ROOT}" ]; then
 fi
 
 source "${MINICONDA_ROOT}/etc/profile.d/conda.sh"
+
+# Newer conda releases may block non-interactive env creation until the
+# default Anaconda channels' Terms of Service are accepted.
+if conda tos --help >/dev/null 2>&1; then
+  conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main >/dev/null
+  conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r >/dev/null
+fi
 
 if ! conda env list | awk '{print $1}' | grep -Fxq "${ENV_NAME}"; then
   conda create -y -n "${ENV_NAME}" python=3.11

@@ -41,6 +41,7 @@ class RuntimeArtifact:
     raw_size_mb: float
     response_text: str
     reference_text: str
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -88,6 +89,7 @@ class MetricsRow:
     scenario: str
     workload: str
     variant: str
+    timing_source: str
     request_count: int
     median_prefill_latency_ms: float
     p95_prefill_latency_ms: float
@@ -101,12 +103,25 @@ class MetricsRow:
     quality_metric: str
     accepted_entries: int
     evicted_entries: int
+    avg_input_tokens: float
+    avg_generated_tokens: float
+    avg_reuse_tokens: float
+    avg_prefill_saved_ms: float
+    avg_delta_penalty_ms: float
+    avg_pressure_penalty_ms: float
+    avg_runtime_tokenize_ms: float
+    avg_runtime_prefill_ms: float
+    avg_runtime_decode_ms: float
+    avg_runtime_adapter_switch_ms: float
+    avg_similarity: float
+    avg_error_bound: float
 
     def as_csv_row(self) -> dict[str, object]:
         return {
             "scenario": self.scenario,
             "workload": self.workload,
             "variant": self.variant,
+            "timing_source": self.timing_source,
             "request_count": self.request_count,
             "median_prefill_latency_ms": round(self.median_prefill_latency_ms, 4),
             "p95_prefill_latency_ms": round(self.p95_prefill_latency_ms, 4),
@@ -120,6 +135,18 @@ class MetricsRow:
             "quality_metric": self.quality_metric,
             "accepted_entries": self.accepted_entries,
             "evicted_entries": self.evicted_entries,
+            "avg_input_tokens": round(self.avg_input_tokens, 4),
+            "avg_generated_tokens": round(self.avg_generated_tokens, 4),
+            "avg_reuse_tokens": round(self.avg_reuse_tokens, 4),
+            "avg_prefill_saved_ms": round(self.avg_prefill_saved_ms, 4),
+            "avg_delta_penalty_ms": round(self.avg_delta_penalty_ms, 4),
+            "avg_pressure_penalty_ms": round(self.avg_pressure_penalty_ms, 4),
+            "avg_runtime_tokenize_ms": round(self.avg_runtime_tokenize_ms, 4),
+            "avg_runtime_prefill_ms": round(self.avg_runtime_prefill_ms, 4),
+            "avg_runtime_decode_ms": round(self.avg_runtime_decode_ms, 4),
+            "avg_runtime_adapter_switch_ms": round(self.avg_runtime_adapter_switch_ms, 4),
+            "avg_similarity": round(self.avg_similarity, 6),
+            "avg_error_bound": round(self.avg_error_bound, 8),
         }
 
 
@@ -186,8 +213,11 @@ class AppConfig:
 class PrepareManifest:
     backend: str
     base_model: str
+    base_model_check: dict[str, object] = field(default_factory=dict)
     adapter_checks: list[dict[str, object]] = field(default_factory=list)
+    asset_checks: list[dict[str, object]] = field(default_factory=list)
     dependency_checks: list[dict[str, object]] = field(default_factory=list)
+    runtime_validation: list[dict[str, object]] = field(default_factory=list)
     directories: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 

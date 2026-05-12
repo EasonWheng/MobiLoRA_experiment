@@ -18,10 +18,23 @@ class QualityScorer:
             self._bert_score = None
 
     def compare(self, reference: str, candidate: str) -> float:
+        return self.compare_many([reference], [candidate])[0]
+
+    def compare_many(self, references: list[str], candidates: list[str]) -> list[float]:
+        if len(references) != len(candidates):
+            raise ValueError("references and candidates must have the same length")
+        if not references:
+            return []
         if self._bert_score is not None:
-            precision, recall, f1 = self._bert_score([candidate], [reference], lang="en", verbose=False)
-            return float(f1.mean().item())
-        return self._token_f1(reference, candidate)
+            _, _, f1 = self._bert_score(
+                candidates,
+                references,
+                lang="en",
+                verbose=False,
+                batch_size=min(16, len(references)),
+            )
+            return [float(item) for item in f1.tolist()]
+        return [self._token_f1(reference, candidate) for reference, candidate in zip(references, candidates)]
 
     def _token_f1(self, reference: str, candidate: str) -> float:
         reference_tokens = reference.lower().split()

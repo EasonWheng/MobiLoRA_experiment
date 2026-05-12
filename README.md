@@ -92,6 +92,16 @@ python main.py prepare --backend hf
 
 The HF backend is intentionally conservative and currently focuses on validation and artifact extraction rather than full-speed serving.
 
+## Explainability outputs
+
+Each benchmark run now writes three layers of inspectable output under the configured bench output directory:
+
+- `results.csv`: aggregated scenario/workload/variant rows with driver columns such as `avg_prefill_saved_ms`, `avg_delta_penalty_ms`, and `avg_runtime_prefill_ms`
+- `summary.json`: machine-readable metric definitions plus per-row driver summaries
+- `traces/*.jsonl`: one record per request with anchor ids, reuse lengths, delta error bounds, runtime timings, and CUDA memory snapshots
+
+For the HF backend, the benchmark first warms the runtime and then extracts each request artifact exactly once before scoring all variants. This keeps large model costs on `D:` while making per-variant comparisons easier to explain because the variants share the same measured base artifact.
+
 ## Notes
 
 - Large files are deliberately kept out of git.

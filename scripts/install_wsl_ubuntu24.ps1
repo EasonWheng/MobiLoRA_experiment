@@ -91,7 +91,6 @@ $workspaceRoot = Split-Path -Parent $PSScriptRoot
 $wslRoot = "D:\WSL"
 $distroPath = Join-Path $wslRoot "Ubuntu-24.04"
 $downloadDir = Join-Path $wslRoot "downloads"
-$tempExtract = Join-Path $downloadDir "ubuntu-import"
 
 Ensure-Directory $wslRoot
 Ensure-Directory $distroPath
@@ -151,27 +150,20 @@ if (wsl.exe -l -q | Select-String -SimpleMatch "Ubuntu-24.04") {
     exit 0
 }
 
-if (Test-Path $tempExtract) {
-    Remove-Item -LiteralPath $tempExtract -Recurse -Force
+Write-Host "Installing Ubuntu-24.04 from local .wsl image into $distroPath"
+& wsl.exe --install --from-file $downloadPath --name Ubuntu-24.04 --location $distroPath --no-launch | Out-Host
+if ($LASTEXITCODE -notin @(0, 3010)) {
+    throw "wsl --install --from-file failed with exit code $LASTEXITCODE."
 }
-Ensure-Directory $tempExtract
-
-Copy-Item -LiteralPath $downloadPath -Destination (Join-Path $tempExtract "ubuntu-24.04.wsl") -Force
-Push-Location $tempExtract
-tar.exe -xf ".\ubuntu-24.04.wsl"
-Pop-Location
-
-$rootFsCandidates = Get-ChildItem -LiteralPath $tempExtract -Filter "*.tar.gz" -Recurse
-if ($rootFsCandidates.Count -eq 0) {
-    throw "Failed to extract a rootfs tarball from the downloaded WSL image."
+if ($LASTEXITCODE -eq 3010 -or (Test-PendingReboot)) {
+    Write-Host ""
+    Write-Host "Ubuntu-24.04 installation requested a reboot."
+    Write-Host "Please restart Windows, then rerun this same script."
+    exit 0
 }
-
-$rootFsPath = $rootFsCandidates[0].FullName
-Write-Host "Importing Ubuntu-24.04 into $distroPath"
-wsl.exe --import Ubuntu-24.04 $distroPath $rootFsPath --version 2 | Out-Host
 
 Write-Host ""
-Write-Host "WSL import finished."
+Write-Host "Ubuntu-24.04 installation finished."
 Write-Host "Next steps:"
 Write-Host "  1. Launch the distro: wsl.exe -d Ubuntu-24.04"
 Write-Host "  2. Create your Linux user."
