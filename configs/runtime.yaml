@@ -1,0 +1,72 @@
+paths:
+  hf_cache_dir: hf_cache
+  datasets_dir: datasets
+  adapters_dir: adapters
+  bench_outputs_dir: bench_outputs
+
+runtime:
+  backend: mock
+  base_model: Qwen/Qwen2.5-0.5B-Instruct
+  quantization_bits: 4
+  load_in_4bit: true
+  device: cuda
+  hidden_size: 896
+  layer_count: 24
+  max_new_tokens: 96
+
+adapter_repos:
+  - Hazde/careerbot_PG6_Qwen_Qwen2.5-0.5B-Instruct_model_LoRA
+  - taronklm/Qwen2.5-0.5B-Instruct-lora-chatbot
+  - Jonathanmann/qwen-email-1300
+  - Jonathanmann/qwen-sms-3400
+
+delta:
+  high_similarity_threshold: 0.975
+  medium_similarity_threshold: 0.85
+  high_similarity_error_bound: 1.0e-4
+  medium_similarity_error_bound: 1.0e-3
+  low_similarity_error_bound: 1.0e-2
+
+eviction:
+  foreground_score: 1.0
+  background_score: 0.4
+  killed_score: 0.0
+  lambda_state: 0.5
+  lambda_recency: 0.3
+  lambda_length: 0.2
+  recent_window: 20
+
+bench:
+  random_seed: 1140
+  workloads:
+    - conversation
+    - writing
+  dataset_files:
+    conversation: data/samples/sharegpt_sample.jsonl
+    writing: data/samples/xsum_sample.jsonl
+  scenarios:
+    - name: S1*
+      adapter_count: 2
+      cache_budget_mb: 256
+      max_input: 512
+      request_count: 300
+    - name: S2*
+      adapter_count: 2
+      cache_budget_mb: 512
+      max_input: 1024
+      request_count: 300
+    - name: S3*
+      adapter_count: 2
+      cache_budget_mb: 512
+      max_input: 1536
+      request_count: 300
+    - name: S4*
+      adapter_count: 4
+      cache_budget_mb: 256
+      max_input: 512
+      request_count: 300
+    - name: S5*
+      adapter_count: 4
+      cache_budget_mb: 512
+      max_input: 1024
+      request_count: 300

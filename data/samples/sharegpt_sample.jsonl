@@ -1,0 +1,6 @@
+{"prompt": "Explain the difference between supervised and unsupervised learning in plain language.", "reference": "Supervised learning uses labeled data, while unsupervised learning finds patterns without labels."}
+{"prompt": "Write a friendly reply to a teammate who fixed a production incident late at night.", "reference": "Thank them warmly, mention the impact, and encourage them to rest."}
+{"prompt": "I need a short study plan for learning PyTorch over two weeks.", "reference": "Start with tensors, autograd, basic models, training loops, and a small project."}
+{"prompt": "Summarize why caching helps large language model inference.", "reference": "Caching avoids recomputing attention states for repeated prefixes, reducing latency."}
+{"prompt": "Give me a concise explanation of LoRA for a beginner.", "reference": "LoRA adapts a large model by learning small low-rank weight updates instead of fine-tuning every parameter."}
+{"prompt": "Draft a supportive message after a classmate misses a lab deadline.", "reference": "Be kind, acknowledge the setback, and help them focus on a recovery plan."}

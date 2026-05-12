@@ -1,0 +1,46 @@
+.idea/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local secrets and env overrides
+.env
+.env.*
+!.env.example
+
+# Windows / WSL temp files
+Thumbs.db
+Desktop.ini
+*.log
+*.tmp
+*.bak
+
+# Local runtime outputs
+artifacts/
+reports/
+outputs/
+*.png
+*.pdf
+*.svg
+*.csv
+!data/samples/*.csv
+
+# Large local assets must stay on D: and out of git
+assets/
+models/
+datasets/
+hf_cache/
+bench_outputs/
+docker/
+wsl/
+
+# Repo-adjacent mirrors or mounts that may appear locally
+D:\MobiLoRA_assets\
+D:\WSL\
+/mnt/d/MobiLoRA_assets/
+/mnt/d/WSL/
