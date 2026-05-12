@@ -38,8 +38,10 @@ function Find-ExistingUbuntuWslImage([string]$DirectoryPath) {
         return $null
     }
 
-    $candidates = Get-ChildItem -LiteralPath $DirectoryPath -Filter "ubuntu-24.04.*-wsl-amd64.wsl" -File -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTimeUtc -Descending
+    $candidates = @(
+        Get-ChildItem -LiteralPath $DirectoryPath -Filter "ubuntu-24.04.*-wsl-amd64.wsl" -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc -Descending
+    )
     if ($candidates.Count -gt 0) {
         return $candidates[0].FullName
     }
