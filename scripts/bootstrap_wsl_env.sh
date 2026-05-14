@@ -6,9 +6,14 @@ HF_CACHE_DIR="${HF_HOME:-${ASSET_ROOT}/hf_cache}"
 DATASETS_CACHE_DIR="${HF_DATASETS_CACHE:-${ASSET_ROOT}/datasets}"
 ADAPTERS_DIR="${MOBILORA_ADAPTER_DIR:-${ASSET_ROOT}/adapters}"
 MINICONDA_ROOT="${HOME}/miniconda3"
-ENV_NAME="nn-lesson-SEU"
+ENV_NAME="${MOBILORA_CONDA_ENV_NAME:-nn-lesson-SEU-sglang-cu128}"
 MINICONDA_DIR_ON_D="${ASSET_ROOT}/miniconda"
 MINICONDA_INSTALLER="${MINICONDA_DIR_ON_D}/Miniconda3-latest-Linux-x86_64.sh"
+TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}"
+TORCH_VERSION="${TORCH_VERSION:-2.9.1+cu128}"
+TORCHVISION_VERSION="${TORCHVISION_VERSION:-0.24.1+cu128}"
+TORCHAUDIO_VERSION="${TORCHAUDIO_VERSION:-2.9.1+cu128}"
+SGLANG_VERSION="${SGLANG_VERSION:-0.5.9}"
 
 mkdir -p "${ASSET_ROOT}" "${HF_CACHE_DIR}" "${DATASETS_CACHE_DIR}" "${ADAPTERS_DIR}" "${MINICONDA_DIR_ON_D}" "${ASSET_ROOT}/bench_outputs"
 
@@ -51,16 +56,22 @@ fi
 conda activate "${ENV_NAME}"
 python -m pip install --upgrade pip
 python -m pip install \
-  torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+  "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}" "torchaudio==${TORCHAUDIO_VERSION}" \
+  --index-url "${TORCH_INDEX_URL}"
 python -m pip install \
-  transformers peft accelerate bitsandbytes safetensors \
-  datasets bert-score pandas matplotlib pyyaml sentencepiece huggingface_hub
+  "sglang==${SGLANG_VERSION}" \
+  --extra-index-url "${TORCH_INDEX_URL}"
+python -m pip install \
+  transformers peft accelerate safetensors \
+  datasets bert-score pandas matplotlib pyyaml sentencepiece huggingface_hub \
+  fastapi uvicorn requests packaging
 
 grep -q "MOBILORA_ASSET_ROOT" "${HOME}/.bashrc" 2>/dev/null || cat <<EOF >> "${HOME}/.bashrc"
 export MOBILORA_ASSET_ROOT="${ASSET_ROOT}"
 export HF_HOME="${HF_CACHE_DIR}"
 export TRANSFORMERS_CACHE="${HF_CACHE_DIR}"
 export HF_DATASETS_CACHE="${DATASETS_CACHE_DIR}"
+export MOBILORA_CONDA_ENV_NAME="${ENV_NAME}"
 EOF
 
 echo "Bootstrap complete."

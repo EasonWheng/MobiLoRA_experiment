@@ -200,6 +200,55 @@ class BenchConfig:
 
 
 @dataclass(slots=True)
+class SGLangConfig:
+    wsl_distro: str
+    host: str
+    stock_port: int
+    mobilora_port: int
+    conda_root: str
+    conda_env_name: str
+    python_executable: str
+    source_root: Path
+    source_commit: str
+    stable_release_tag: str
+    stable_package_version: str
+    torch_version: str
+    torchvision_version: str
+    torchaudio_version: str
+    torch_index_url: str
+    extra_index_url: str
+    launch_model_name: str
+    max_loras_per_batch: int
+    max_loaded_loras: int
+    mem_fraction_static: float
+    max_running_requests: int
+    max_total_tokens: int
+    context_length: int
+    disable_cuda_graph: bool
+
+
+@dataclass(slots=True)
+class DashboardConfig:
+    host: str
+    backend_port: int
+    frontend_port: int
+    frontend_dir: Path
+
+
+@dataclass(slots=True)
+class PaperConfig:
+    conversation_source_url: str
+    writing_dataset_name: str
+    writing_dataset_split: str
+    app_usage_source_url: str
+    prepared_dir: Path
+    traces_dir: Path
+    baselines: tuple[str, ...]
+    smoke_request_count: int
+    frontend_default_variant: str
+
+
+@dataclass(slots=True)
 class AppConfig:
     paths: PathConfig
     runtime: RuntimeConfig
@@ -207,6 +256,9 @@ class AppConfig:
     delta: DeltaConfig
     eviction: EvictionConfig
     bench: BenchConfig
+    sglang: SGLangConfig
+    dashboard: DashboardConfig
+    paper: PaperConfig
 
 
 @dataclass(slots=True)

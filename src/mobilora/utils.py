@@ -3,9 +3,13 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import re
 import statistics
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Iterable
+
+
+WINDOWS_ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 def default_asset_root() -> Path:
@@ -17,8 +21,25 @@ def default_asset_root() -> Path:
     return Path("/mnt/d/MobiLoRA_assets")
 
 
+def coerce_path(
+    value: str | os.PathLike[str],
+    *,
+    base_dir: Path | None = None,
+) -> Path:
+    raw = str(value)
+    if os.name != "nt" and WINDOWS_ABS_PATH_RE.match(raw):
+        win_path = PureWindowsPath(raw)
+        drive = win_path.drive.rstrip(":").lower()
+        tail = [part for part in win_path.parts[1:] if part not in ("\\", "/")]
+        return Path("/mnt") / drive / Path(*tail)
+    path = Path(raw)
+    if not path.is_absolute() and base_dir is not None:
+        path = base_dir / path
+    return path
+
+
 def resolve_asset_subdir(root: Path, maybe_relative: str | os.PathLike[str]) -> Path:
-    path = Path(maybe_relative)
+    path = coerce_path(maybe_relative)
     if path.is_absolute():
         return path
     return root / path

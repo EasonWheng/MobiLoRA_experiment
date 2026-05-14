@@ -4,6 +4,7 @@ import importlib.util
 import json
 import random
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -143,6 +144,97 @@ class MockRuntime(BaseRuntime):
         if request.workload == "writing":
             return f"[{request.adapter_alias}] Summary: {focus}"
         return f"[{request.adapter_alias}] Reply: {focus}"
+
+
+def _extract_service_text(payload: object) -> str:
+    if isinstance(payload, list):
+        return "\n".join(
+            str(item.get("text", ""))
+            for item in payload
+            if isinstance(item, dict) and item.get("text")
+        ).strip()
+    if isinstance(payload, dict):
+        for key in ("text", "response", "output_text"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
+def call_sglang_endpoint_sync(
+    backend: str,
+    prompt: str,
+    url: str,
+    lora_name: str | None,
+    app_id: str,
+    app_state: str,
+    session_id: str,
+    max_new_tokens: int,
+) -> dict[str, object]:
+    endpoint = "/generate"
+    payload: dict[str, object]
+    if backend == "sglang_mobilora":
+        endpoint = "/mobilora/generate"
+        payload = {
+            "prompt": prompt,
+            "lora_name": lora_name,
+            "app_id": app_id,
+            "app_state": app_state,
+            "session_id": session_id,
+            "max_new_tokens": max_new_tokens,
+            "stream": True,
+        }
+    else:
+        payload = {
+            "text": prompt,
+            "sampling_params": {"max_new_tokens": max_new_tokens, "temperature": 0},
+            "lora_path": lora_name,
+            "stream": True,
+        }
+
+    request = urllib.request.Request(
+        url=f"{url}{endpoint}",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    ttft_ms = 0.0
+    chunks: list[str] = []
+    last_event: dict[str, object] | list[object] | None = None
+    started_at = time.perf_counter()
+    with urllib.request.urlopen(request, timeout=300) as response:
+        for raw_line in response:
+            line = raw_line.decode("utf-8", errors="ignore").strip()
+            if not line or not line.startswith("data:"):
+                continue
+            payload_text = line[5:].strip()
+            if payload_text == "[DONE]":
+                break
+            parsed = json.loads(payload_text)
+            last_event = parsed
+            if ttft_ms <= 0.0:
+                ttft_ms = (time.perf_counter() - started_at) * 1000.0
+            text = _extract_service_text(parsed)
+            if text:
+                chunks.append(text)
+    e2e_ms = (time.perf_counter() - started_at) * 1000.0
+    # SGLang streaming chunks are cumulative for this endpoint. Prefer the
+    # final event so benchmark token counts are not inflated by repeated text.
+    final_text = _extract_service_text(last_event) or "".join(chunks).strip()
+    meta_info = last_event.get("meta_info", {}) if isinstance(last_event, dict) else {}
+    return {
+        "endpoint": f"{url}{endpoint}",
+        "text": final_text,
+        "ttft_ms": ttft_ms,
+        "e2e_ms": e2e_ms,
+        "meta_info": meta_info,
+        "raw_response": last_event or {},
+    }
+
+
+async def call_sglang_endpoint(**kwargs) -> dict[str, object]:
+    return call_sglang_endpoint_sync(**kwargs)
 
 
 class HuggingFaceRuntime(BaseRuntime):
@@ -453,10 +545,94 @@ class HuggingFaceRuntime(BaseRuntime):
         return token_count / (elapsed_ms / 1000.0)
 
 
+class SGLangRuntime(MockRuntime):
+    def __init__(self, config: AppConfig, backend_name: str) -> None:
+        super().__init__(config)
+        self.backend_name = backend_name
+        port = config.sglang.stock_port
+        if backend_name == "sglang_mobilora":
+            port = config.sglang.mobilora_port
+        self.url = f"http://{config.sglang.host}:{port}"
+
+    def artifact_from_request(self, request: RequestRecord, max_input: int) -> RuntimeArtifact:
+        synthetic = super().artifact_from_request(request, max_input)
+        live = call_sglang_endpoint_sync(
+            backend=self.backend_name,
+            prompt=request.prompt,
+            url=self.url,
+            lora_name=request.adapter_alias,
+            app_id=request.app_id,
+            app_state=request.app_state,
+            session_id=request.request_id,
+            max_new_tokens=min(64, self.config.runtime.max_new_tokens),
+        )
+        response_text = str(live.get("text") or synthetic.response_text).strip()
+        generated_tokens = len(response_text.split())
+        metadata = dict(synthetic.metadata)
+        metadata.update(
+            {
+                "backend": self.backend_name,
+                "timing_source": "measured_runtime",
+                "ttft_ms": round(float(live.get("ttft_ms", 0.0)), 6),
+                "tokenize_ms": 0.0,
+                "prefill_ms": round(float(live.get("ttft_ms", 0.0)), 6),
+                "decode_ms": round(
+                    max(float(live.get("e2e_ms", 0.0)) - float(live.get("ttft_ms", 0.0)), 0.0),
+                    6,
+                ),
+                "adapter_switch_ms": 0.0,
+                "measured_end_to_end_ms": round(float(live.get("e2e_ms", 0.0)), 6),
+                "generated_tokens": generated_tokens,
+                "service_url": self.url,
+                "service_endpoint": str(live.get("endpoint", "")),
+                "service_meta_info": live.get("meta_info", {}),
+            }
+        )
+        return RuntimeArtifact(
+            token_ids=synthetic.token_ids,
+            shallow_key=synthetic.shallow_key,
+            layer_vectors=synthetic.layer_vectors,
+            raw_size_mb=synthetic.raw_size_mb,
+            response_text=response_text,
+            reference_text=request.reference or response_text,
+            metadata=metadata,
+        )
+
+    def validation_record(self) -> dict[str, object]:
+        try:
+            probe = call_sglang_endpoint_sync(
+                backend=self.backend_name,
+                prompt="Say hello in one short sentence.",
+                url=self.url,
+                lora_name=self.config.adapter_specs[0].alias if self.config.adapter_specs else None,
+                app_id="validation",
+                app_state="foreground",
+                session_id="validation-session",
+                max_new_tokens=16,
+            )
+            return {
+                "backend": self.backend_name,
+                "status": "ok",
+                "url": self.url,
+                "endpoint": probe.get("endpoint", ""),
+                "ttft_ms": round(float(probe.get("ttft_ms", 0.0)), 6),
+                "e2e_ms": round(float(probe.get("e2e_ms", 0.0)), 6),
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "backend": self.backend_name,
+                "status": "error",
+                "url": self.url,
+                "detail": str(exc),
+            }
+
+
 def build_runtime(config: AppConfig, backend: str | None = None) -> BaseRuntime:
     selected = (backend or config.runtime.backend).lower()
     if selected == "hf":
         return HuggingFaceRuntime(config)
+    if selected in {"sglang_stock", "sglang_mobilora"}:
+        return SGLangRuntime(config, selected)
     return MockRuntime(config)
 
 
@@ -528,6 +704,10 @@ def build_prepare_manifest(
         )
         if download_assets:
             manifest.notes.append("HF assets were downloaded into the configured D-drive cache directories.")
+    elif backend.lower() in {"sglang_stock", "sglang_mobilora"}:
+        manifest.notes.append(
+            "SGLang backend validation uses the configured local service endpoint and keeps model/cache files on D: via WSL-mounted paths."
+        )
     else:
         manifest.notes.append(
             "Mock backend exercises the full MobiLoRA control plane without requiring the base model to fit."
