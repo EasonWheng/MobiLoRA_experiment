@@ -1,4 +1,5 @@
 paths:
+  asset_root: D:/MobiLoRA_assets
   hf_cache_dir: hf_cache
   datasets_dir: datasets
   adapters_dir: adapters
@@ -15,10 +16,10 @@ runtime:
   max_new_tokens: 96
 
 adapter_repos:
-  - Hazde/careerbot_PG6_Qwen_Qwen2.5-0.5B-Instruct_model_LoRA
-  - taronklm/Qwen2.5-0.5B-Instruct-lora-chatbot
   - Jonathanmann/qwen-email-1300
   - Jonathanmann/qwen-sms-3400
+  - Hazde/careerbot_PG6_Qwen_Qwen2.5-0.5B-Instruct_model_LoRA
+  - taronklm/Qwen2.5-0.5B-Instruct-lora-chatbot
 
 delta:
   high_similarity_threshold: 0.975
@@ -45,28 +46,74 @@ bench:
     conversation: data/samples/sharegpt_sample.jsonl
     writing: data/samples/xsum_sample.jsonl
   scenarios:
-    - name: S1*
+    - name: S1-local
       adapter_count: 2
       cache_budget_mb: 256
-      max_input: 512
+      max_input: 1024
       request_count: 300
-    - name: S2*
+    - name: S2-local
       adapter_count: 2
       cache_budget_mb: 512
       max_input: 1024
       request_count: 300
-    - name: S3*
+    - name: S3-local
       adapter_count: 2
       cache_budget_mb: 512
-      max_input: 1536
+      max_input: 2048
       request_count: 300
-    - name: S4*
+    - name: S4-local
       adapter_count: 4
       cache_budget_mb: 256
-      max_input: 512
-      request_count: 300
-    - name: S5*
-      adapter_count: 4
-      cache_budget_mb: 512
       max_input: 1024
       request_count: 300
+    - name: S5-local
+      adapter_count: 4
+      cache_budget_mb: 512
+      max_input: 2048
+      request_count: 300
+
+sglang:
+  wsl_distro: Ubuntu-24.04
+  host: 127.0.0.1
+  stock_port: 30100
+  mobilora_port: 30101
+  conda_root: /home/tomat/miniconda3
+  conda_env_name: nn-lesson-SEU-sglang-cu128
+  python_executable: /home/tomat/miniconda3/envs/nn-lesson-SEU-sglang-cu128/bin/python
+  source_root: third_party/sglang/python
+  source_commit: bbe9c7eeb520b0a67e92d133dfc137a3688dc7f2
+  stable_release_tag: v0.5.5.post3
+  stable_package_version: 0.5.5.post3
+  torch_version: 2.8.0+cu128
+  torchvision_version: 0.23.0+cu128
+  torchaudio_version: 2.8.0+cu128
+  torch_index_url: https://download.pytorch.org/whl/cu128
+  extra_index_url: https://pypi.org/simple
+  launch_model_name: D:/MobiLoRA_assets/hf_cache/base_models/Qwen__Qwen2-5-0-5B-Instruct
+  max_loras_per_batch: 4
+  max_loaded_loras: 8
+  mem_fraction_static: 0.80
+  max_running_requests: 1
+  max_total_tokens: 1024
+  context_length: 1024
+  disable_cuda_graph: true
+
+dashboard:
+  host: 127.0.0.1
+  backend_port: 8765
+  frontend_port: 4173
+  frontend_dir: frontend
+
+paper:
+  conversation_source_url: https://huggingface.co/datasets/Aeala/ShareGPT_Vicuna_unfiltered
+  writing_dataset_name: EdinburghNLP/xsum
+  writing_dataset_split: train
+  app_usage_source_url: https://fi.ee.tsinghua.edu.cn/appusage/
+  prepared_dir: datasets/paper
+  traces_dir: datasets/paper_traces
+  baselines:
+    - hf_peft
+    - sglang_stock_lora
+    - sglang_mobilora
+  smoke_request_count: 12
+  frontend_default_variant: sglang_mobilora
