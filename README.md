@@ -20,7 +20,7 @@ The target platform is `Windows 11 + WSL2 + Ubuntu 24.04 + NVIDIA T600 4GB`, wit
 - context-aware KV cache eviction inspired by Eq. (4) in the paper
 - paper-local data preparation for ShareGPT-style conversation, XSum-style writing, and app-usage traces
 - a vendored SGLang fork with local request metadata, cache annotations, and `/mobilora/generate`
-- a FastAPI dashboard backend plus a scaffolded React/Vite frontend for live prompting and result exploration
+- a FastAPI dashboard backend plus a React/Vite frontend for live prompting and result exploration
 - Windows + WSL bootstrap scripts that keep all large artifacts on `D:`
 
 ## Repository layout
@@ -29,6 +29,7 @@ The target platform is `Windows 11 + WSL2 + Ubuntu 24.04 + NVIDIA T600 4GB`, wit
 - `configs/runtime.yaml`: default runtime and benchmark config
 - `src/mobilora/`: prototype implementation
 - `third_party/sglang/`: vendored SGLang source with local MobiLoRA patches
+- `patches/sglang_mobilora_local.patch`: replayable patch for the SGLang submodule
 - `frontend/`: React/Vite dashboard scaffold
 - `scripts/install_wsl_ubuntu24.ps1`: installs WSL prerequisites and imports Ubuntu 24.04 onto `D:`
 - `scripts/bootstrap_wsl_env.sh`: installs Miniconda and Python dependencies inside WSL
@@ -76,6 +77,12 @@ This installs:
 - conda env `nn-lesson-SEU`
 - CUDA-compatible PyTorch stack and prototype dependencies
 
+The SGLang serving path uses a separate WSL conda env:
+
+- `nn-lesson-SEU-sglang-cu128`
+- `torch 2.8.0+cu128`
+- model/data/cache paths under `/mnt/d/MobiLoRA_assets`
+
 ### 4. Prepare prototype metadata
 
 ```bash
@@ -120,35 +127,64 @@ python main.py bootstrap-sglang
 ```
 
 This installs the vendored `third_party/sglang/python` package in editable mode inside the WSL conda environment and writes a manifest to the bench output directory.
+Before the editable install, the bootstrap command checks and applies
+`patches/sglang_mobilora_local.patch` so a fresh clone can reproduce the local
+MobiLoRA SGLang changes without relying on uncommitted submodule state.
 
-### 3. Run a smoke paper-local benchmark
+### 3. Launch the local MobiLoRA SGLang service
+
+On the `NVIDIA T600 4GB`, run one SGLang service at a time. The patched MobiLoRA
+service is the default live path:
 
 ```bash
-python main.py run-paper-local --smoke
+python main.py serve-sglang --variant sglang_mobilora --adapter-count 2 --detach
 ```
 
-Smoke mode validates:
+This starts `Qwen/Qwen2.5-0.5B-Instruct` with two SGLang-compatible LoRA
+adapters and exposes:
+
+- `/health`
+- `/generate`
+- `/mobilora/generate`
+
+If an adapter snapshot includes tokenizer files plus `added_tokens.json`, the
+launcher creates a slim serving copy under `D:\MobiLoRA_assets\adapters_sglang`
+that keeps only the PEFT LoRA config and weights. The original adapter cache is
+not modified.
+
+### 4. Run a smoke paper-local benchmark
+
+```powershell
+$env:PYTHONUTF8='1'
+$env:PYTHONIOENCODING='utf-8'
+C:\Users\tomat\.conda\envs\nn-lesson-SEU\python.exe main.py run-paper-local --smoke
+```
+
+Smoke mode can validate:
 
 - `hf_peft`
 - `sglang_stock_lora`
 - `sglang_mobilora`
 
-and produces:
+In the current 4GB setup, `sglang_stock_lora` may be marked offline unless you
+start that service separately on port `30100`. The MobiLoRA smoke output
+produces:
 
 - `paper_results.csv`
 - `paper_summary.json`
 - request-level traces under the configured bench output directory
 
-### 4. Launch the local SGLang service
+### 5. Optional stock SGLang baseline
 
 ```bash
-python main.py serve-sglang --variant sglang_mobilora --adapter-count 2 --detach
 python main.py serve-sglang --variant sglang_stock_lora --adapter-count 2 --detach
 ```
 
-Use `--print-command` if you want to inspect the resolved WSL launch command first.
+Use `--print-command` if you want to inspect the resolved WSL launch command
+first. Stop the MobiLoRA service before launching stock on this GPU if memory is
+tight.
 
-### 5. Launch the dashboard backend
+### 6. Launch the dashboard backend
 
 ```bash
 python main.py serve-dashboard --results-dir /mnt/d/MobiLoRA_assets/bench_outputs
@@ -163,11 +199,15 @@ The backend exposes:
 
 When the local SGLang service is running, `/api/live/generate` can send a real prompt to your deployed model and return live text plus runtime metadata.
 
+If `frontend/dist` exists, the dashboard backend serves the React/Vite build.
+Otherwise it falls back to the built-in FastAPI HTML page.
+
 ## Local SGLang notes
 
 - The vendored SGLang fork adds request fields for `app_id`, `app_state`, and `session_id`.
 - The fork also exposes `/mobilora/generate` for MobiLoRA-aware prompting while keeping existing endpoints intact.
 - On this laptop, the paper scenarios are intentionally scaled down to fit a `Qwen/Qwen2.5-0.5B-Instruct` base model and a small LoRA pool.
+- CUDA 12.8 is supported through the `cu128` WSL environment; do not install CUDA 13 wheels into the serving env.
 - If a path in `configs/runtime.yaml` uses Windows style like `D:/...`, the loader now converts it correctly when the code runs inside WSL so large outputs still land on the real `D:` drive.
 
 ## Explainability outputs

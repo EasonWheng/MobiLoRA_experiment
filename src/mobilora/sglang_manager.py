@@ -330,6 +330,10 @@ def bootstrap_sglang(
     ensure_directory(output_dir)
     ensure_directory(config.paths.asset_root / "pip_cache")
     source_root = windows_to_wsl_path(config.sglang.source_root)
+    sglang_repo_root = windows_to_wsl_path(config.sglang.source_root.parent)
+    repo_root = config.sglang.source_root.parents[2]
+    local_patch = repo_root / "patches" / "sglang_mobilora_local.patch"
+    local_patch_wsl = windows_to_wsl_path(local_patch)
     conda_root = config.sglang.conda_root.rstrip("/")
     env_name = config.sglang.conda_env_name
 
@@ -381,6 +385,19 @@ def bootstrap_sglang(
             f"{_conda_activate_prefix(config)}"
             f" && {_pip_exports(config)}"
             f" && {_retry_shell(stock_install, attempts=3, delay_seconds=8)}"
+        )
+    if local_patch.exists():
+        commands.append(
+            f"cd {shlex.quote(sglang_repo_root)}"
+            " && if grep -q -- '--enable-mobilora' python/sglang/srt/server_args.py"
+            " && test -f python/sglang/srt/mobilora.py; then"
+            " echo 'MobiLoRA SGLang patch already applied';"
+            f" elif git apply --check {shlex.quote(local_patch_wsl)}; then"
+            f" git apply {shlex.quote(local_patch_wsl)};"
+            " else"
+            " echo 'MobiLoRA SGLang patch cannot be applied cleanly' >&2;"
+            " exit 1;"
+            " fi"
         )
     commands.extend(
         [
@@ -438,6 +455,7 @@ def bootstrap_sglang(
         "torch_version": config.sglang.torch_version,
         "torchvision_version": config.sglang.torchvision_version,
         "torchaudio_version": config.sglang.torchaudio_version,
+        "local_patch": str(local_patch) if local_patch.exists() else "",
         "results": results,
     }
     manifest_path = output_dir / "bootstrap_sglang_manifest.json"

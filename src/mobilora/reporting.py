@@ -13,11 +13,13 @@ def generate_report(results_csv: Path, output_dir: Path) -> Path:
     if not rows:
         raise ValueError(f"No rows found in {results_csv}")
 
-    by_workload: dict[str, list[dict[str, str]]] = defaultdict(list)
-    by_key: dict[tuple[str, str, str], dict[str, str]] = {}
+    has_system = "system" in rows[0]
+    by_workload: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
+    by_key: dict[tuple[str, str, str, str], dict[str, str]] = {}
     for row in rows:
-        by_workload[row["workload"]].append(row)
-        by_key[(row["scenario"], row["workload"], row["variant"])] = row
+        system = row.get("system", "default")
+        by_workload[(system, row["workload"])].append(row)
+        by_key[(system, row["scenario"], row["workload"], row["variant"])] = row
 
     report_lines = [
         "# MobiLoRA Benchmark Report",
@@ -38,6 +40,7 @@ def generate_report(results_csv: Path, output_dir: Path) -> Path:
         "- `avg_delta_penalty_ms`: average extra prefill cost introduced by delta KV encoding.",
         "- `avg_pressure_penalty_ms`: average penalty caused by cache budget pressure or evictions.",
         "- `avg_runtime_prefill_ms`: average measured prompt-forward time before cache-model adjustments.",
+        "- `system`: serving stack or baseline family, such as `hf_peft` or `sglang_mobilora`.",
         "",
         "## Row Formula",
         "",
@@ -51,7 +54,7 @@ def generate_report(results_csv: Path, output_dir: Path) -> Path:
         "",
     ]
 
-    for workload, workload_rows in by_workload.items():
+    for (system, workload), workload_rows in by_workload.items():
         scenario_names = sorted({row["scenario"] for row in workload_rows})
         full_wins = {
             "plain_peft": 0,
@@ -62,12 +65,12 @@ def generate_report(results_csv: Path, output_dir: Path) -> Path:
         full_rows: list[dict[str, str]] = []
 
         for scenario in scenario_names:
-            full_row = by_key.get((scenario, workload, "mobilora_full"))
+            full_row = by_key.get((system, scenario, workload, "mobilora_full"))
             if full_row is None:
                 continue
             full_rows.append(full_row)
             for baseline in tuple(full_wins):
-                baseline_row = by_key.get((scenario, workload, baseline))
+                baseline_row = by_key.get((system, scenario, workload, baseline))
                 if baseline_row is None:
                     continue
                 if float(full_row["median_prefill_latency_ms"]) < float(baseline_row["median_prefill_latency_ms"]):
@@ -77,7 +80,13 @@ def generate_report(results_csv: Path, output_dir: Path) -> Path:
             sum(float(row["compression_ratio"]) for row in full_rows) / max(len(full_rows), 1)
         )
         avg_full_quality = sum(float(row["quality_score"]) for row in full_rows) / max(len(full_rows), 1)
-        report_lines.append(f"### {workload}")
+        report_lines.append(f"### {system} / {workload}")
+        if not full_rows:
+            report_lines.append(
+                "- No `mobilora_full` rows are present for this system, so ablation win counts are not applicable."
+            )
+            report_lines.append("")
+            continue
         report_lines.append(
             f"- `mobilora_full` beats `plain_peft` in {full_wins['plain_peft']}/{len(scenario_names)} scenarios."
         )
@@ -98,14 +107,16 @@ def generate_report(results_csv: Path, output_dir: Path) -> Path:
         [
             "## Detailed Rows",
             "",
-            "| scenario | workload | variant | timing | median prefill (ms) | p95 prefill (ms) | hit ratio | compression ratio | avg KV (MB) | quality |",
-            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| system | scenario | workload | variant | timing | median prefill (ms) | p95 prefill (ms) | hit ratio | compression ratio | avg KV (MB) | quality |",
+            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
 
     for row in rows:
+        system = row.get("system", "default") if has_system else "default"
         report_lines.append(
-            "| {scenario} | {workload} | {variant} | {timing_source} | {median_prefill_latency_ms} | "
+            f"| {system} | "
+            "{scenario} | {workload} | {variant} | {timing_source} | {median_prefill_latency_ms} | "
             "{p95_prefill_latency_ms} | {cache_hit_ratio} | {compression_ratio} | "
             "{avg_persisted_kv_mb} | {quality_score} |".format(**row)
         )
@@ -115,14 +126,16 @@ def generate_report(results_csv: Path, output_dir: Path) -> Path:
             "",
             "## Driver Table",
             "",
-            "| scenario | workload | variant | avg input toks | avg reuse toks | avg saved ms | avg delta ms | avg pressure ms | avg runtime prefill ms | avg runtime decode ms | avg sim | avg err bound |",
-            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| system | scenario | workload | variant | avg input toks | avg reuse toks | avg saved ms | avg delta ms | avg pressure ms | avg runtime prefill ms | avg runtime decode ms | avg sim | avg err bound |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
 
     for row in rows:
+        system = row.get("system", "default") if has_system else "default"
         report_lines.append(
-            "| {scenario} | {workload} | {variant} | {avg_input_tokens} | {avg_reuse_tokens} | "
+            f"| {system} | "
+            "{scenario} | {workload} | {variant} | {avg_input_tokens} | {avg_reuse_tokens} | "
             "{avg_prefill_saved_ms} | {avg_delta_penalty_ms} | {avg_pressure_penalty_ms} | "
             "{avg_runtime_prefill_ms} | {avg_runtime_decode_ms} | {avg_similarity} | "
             "{avg_error_bound} |".format(**row)

@@ -213,26 +213,27 @@ def _read_json_if_exists(path: Path) -> dict[str, object]:
 
 
 def create_dashboard_app(config: AppConfig, results_dir: Path | None = None):
-    from fastapi import FastAPI
-    from fastapi.responses import HTMLResponse, JSONResponse
-    from pydantic import BaseModel
+    from fastapi import Body, FastAPI
+    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+    from fastapi.staticfiles import StaticFiles
 
     from mobilora.runtime import call_sglang_endpoint
 
     app = FastAPI(title="MobiLoRA Local Dashboard", version="0.2.0")
     result_root = results_dir or config.paths.bench_outputs
-
-    class LiveGenerateRequest(BaseModel):
-        prompt: str
-        variant: str = "sglang_mobilora"
-        lora_name: str | None = None
-        app_id: str = "demo-app"
-        app_state: str = "foreground"
-        session_id: str = "session-001"
-        max_new_tokens: int = 96
+    frontend_dist = config.dashboard.frontend_dir / "dist"
+    if (frontend_dist / "assets").exists():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(frontend_dist / "assets")),
+            name="dashboard-assets",
+        )
 
     @app.get("/", response_class=HTMLResponse)
-    async def index() -> str:
+    async def index():
+        built_index = frontend_dist / "index.html"
+        if built_index.exists():
+            return FileResponse(built_index)
         return FALLBACK_HTML
 
     @app.get("/api/server-status")
@@ -257,7 +258,14 @@ def create_dashboard_app(config: AppConfig, results_dir: Path | None = None):
 
     @app.get("/api/results/traces")
     async def results_traces() -> dict[str, object]:
-        trace_candidates = list((result_root / "traces").glob("*.jsonl"))
+        trace_candidates: list[Path] = []
+        for trace_root in (
+            result_root / "paper_local" / "sglang_mobilora" / "traces",
+            result_root / "paper_local" / "hf_peft" / "traces",
+            result_root / "traces",
+        ):
+            if trace_root.exists():
+                trace_candidates.extend(sorted(trace_root.glob("*.jsonl")))
         if not trace_candidates:
             return {"items": []}
         items = []
@@ -272,17 +280,19 @@ def create_dashboard_app(config: AppConfig, results_dir: Path | None = None):
         return {"items": items}
 
     @app.post("/api/live/generate")
-    async def live_generate(body: LiveGenerateRequest) -> JSONResponse:
-        url = sglang_server_url(config, body.variant)
+    async def live_generate(body: dict[str, object] = Body(...)) -> JSONResponse:
+        variant = str(body.get("variant") or "sglang_mobilora")
+        url = sglang_server_url(config, variant)
+        lora_name = body.get("lora_name")
         payload = await call_sglang_endpoint(
-            backend=body.variant,
-            prompt=body.prompt,
+            backend=variant,
+            prompt=str(body.get("prompt") or ""),
             url=url,
-            lora_name=body.lora_name,
-            app_id=body.app_id,
-            app_state=body.app_state,
-            session_id=body.session_id,
-            max_new_tokens=body.max_new_tokens,
+            lora_name=str(lora_name) if lora_name else None,
+            app_id=str(body.get("app_id") or "demo-app"),
+            app_state=str(body.get("app_state") or "foreground"),
+            session_id=str(body.get("session_id") or "session-001"),
+            max_new_tokens=int(body.get("max_new_tokens") or 96),
         )
         return JSONResponse(payload)
 
