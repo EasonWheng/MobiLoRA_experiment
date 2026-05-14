@@ -191,6 +191,12 @@ p {
   font-size: 17px;
 }
 
+.hero-note {
+  margin-top: 12px;
+  color: #e6c98b;
+  font-size: 14px !important;
+}
+
 .hero-pills {
   margin-top: 24px;
 }
@@ -562,6 +568,83 @@ textarea:focus {
 .evidence-list {
   display: grid;
   gap: 12px;
+}
+
+.live-history {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.mini-header,
+.live-record {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.mini-header h3 {
+  margin-top: 6px;
+}
+
+.live-count {
+  flex: 0 0 auto;
+  border: 1px solid rgba(138, 225, 198, 0.34);
+  border-radius: 999px;
+  padding: 7px 10px;
+  color: #8ae1c6;
+  background: rgba(98, 179, 168, 0.1);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.live-snapshot {
+  padding: 18px;
+  border: 1px solid rgba(138, 225, 198, 0.28);
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, rgba(98, 179, 168, 0.16), rgba(255, 255, 255, 0.035)),
+    rgba(255, 255, 255, 0.045);
+}
+
+.live-snapshot span,
+.live-record span {
+  color: #8ae1c6;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+}
+
+.live-snapshot strong {
+  display: block;
+  margin: 8px 0;
+  font-family: Bahnschrift, "Aptos Display", sans-serif;
+  font-size: 34px;
+  letter-spacing: -0.04em;
+}
+
+.live-record-list {
+  display: grid;
+  gap: 8px;
+}
+
+.live-record {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.live-record p {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.trace-divider {
+  height: 1px;
+  margin: 18px 0;
+  background: linear-gradient(90deg, transparent, var(--line), transparent);
 }
 
 .evidence-card {

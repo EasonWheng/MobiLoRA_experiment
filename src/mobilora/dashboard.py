@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import csv
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from mobilora.config import load_config
 from mobilora.sglang_manager import probe_sglang_server, sglang_server_url
@@ -223,6 +225,111 @@ def _read_csv_if_exists(path: Path) -> list[dict[str, str]]:
         return []
 
 
+def _coerce_float(value: object, default: float = 0.0) -> float:
+    try:
+        parsed = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    return parsed
+
+
+def _coerce_int(value: object, default: int = 0) -> int:
+    try:
+        parsed = int(float(value))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    return parsed
+
+
+def _read_jsonl_tail(path: Path, limit: int) -> list[dict[str, object]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, object]] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception:  # noqa: BLE001
+        return []
+    for line in reversed(lines[-limit:]):
+        if not line.strip():
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            rows.append(parsed)
+    return rows
+
+
+def _append_jsonl(path: Path, row: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _nested_number(payload: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = payload.get(key)
+        if value is None:
+            continue
+        parsed = _coerce_float(value, default=float("nan"))
+        if parsed == parsed:
+            return parsed
+    return None
+
+
+def _build_live_record(
+    *,
+    body: dict[str, object],
+    payload: dict[str, object],
+) -> dict[str, object]:
+    meta = payload.get("meta_info")
+    meta_info = meta if isinstance(meta, dict) else {}
+    raw_text = str(payload.get("text") or "")
+    cached_tokens = _coerce_int(meta_info.get("cached_tokens"))
+    reuse_tokens = _coerce_int(
+        meta_info.get("mobilora_hit_tokens"),
+        default=cached_tokens,
+    )
+    completion_tokens = _coerce_int(meta_info.get("completion_tokens"))
+    prompt_tokens = _coerce_int(meta_info.get("prompt_tokens"))
+    compression_ratio = _nested_number(
+        meta_info,
+        "mobilora_compression_ratio",
+        "mobilora_delta_ratio",
+        "delta_ratio",
+        "compression_ratio",
+    )
+    finish_reason = meta_info.get("finish_reason")
+    if isinstance(finish_reason, dict):
+        finish_reason = finish_reason.get("type") or json.dumps(finish_reason, ensure_ascii=False)
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "request_id": str(meta_info.get("id") or ""),
+        "variant": str(body.get("variant") or "sglang_mobilora"),
+        "endpoint": str(payload.get("endpoint") or ""),
+        "lora_name": str(body.get("lora_name") or ""),
+        "app_id": str(body.get("app_id") or "demo-app"),
+        "app_state": str(body.get("app_state") or "foreground"),
+        "session_id": str(body.get("session_id") or "session-001"),
+        "ttft_ms": round(_coerce_float(payload.get("ttft_ms")), 4),
+        "e2e_ms": round(_coerce_float(payload.get("e2e_ms")), 4),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "cached_tokens": cached_tokens,
+        "reuse_tokens": reuse_tokens,
+        "cache_hit": reuse_tokens > 0 or cached_tokens > 0,
+        "anchor_id": str(meta_info.get("mobilora_anchor_id") or ""),
+        "utility": round(_coerce_float(meta_info.get("mobilora_utility")), 6),
+        "priority": _coerce_int(meta_info.get("mobilora_priority")),
+        "compression_ratio": compression_ratio,
+        "max_new_tokens": _coerce_int(body.get("max_new_tokens")),
+        "finish_reason": str(finish_reason or ""),
+        "text_preview": raw_text[:1200],
+    }
+
+
 def create_dashboard_app(config: AppConfig, results_dir: Path | None = None):
     from fastapi import Body, FastAPI
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -304,6 +411,15 @@ def create_dashboard_app(config: AppConfig, results_dir: Path | None = None):
             )
         return {"items": items}
 
+    @app.get("/api/live/requests")
+    async def live_requests(limit: int = 50) -> dict[str, object]:
+        bounded_limit = max(1, min(int(limit), 200))
+        live_path = result_root / "live_requests.jsonl"
+        return {
+            "source": str(live_path),
+            "items": _read_jsonl_tail(live_path, bounded_limit),
+        }
+
     @app.post("/api/live/generate")
     async def live_generate(body: dict[str, object] = Body(...)) -> JSONResponse:
         variant = str(body.get("variant") or "sglang_mobilora")
@@ -319,6 +435,11 @@ def create_dashboard_app(config: AppConfig, results_dir: Path | None = None):
             session_id=str(body.get("session_id") or "session-001"),
             max_new_tokens=int(body.get("max_new_tokens") or 96),
         )
+        live_path = result_root / "live_requests.jsonl"
+        live_record = _build_live_record(body=body, payload=payload)
+        _append_jsonl(live_path, live_record)
+        payload["live_record"] = live_record
+        payload["live_log_path"] = str(live_path)
         return JSONResponse(payload)
 
     return app

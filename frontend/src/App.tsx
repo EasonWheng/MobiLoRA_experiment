@@ -33,6 +33,30 @@ type ResultRow = {
   avg_error_bound: string;
 };
 
+type LiveRecord = {
+  timestamp: string;
+  request_id: string;
+  variant: string;
+  endpoint: string;
+  lora_name: string;
+  app_id: string;
+  app_state: string;
+  session_id: string;
+  ttft_ms: number;
+  e2e_ms: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
+  reuse_tokens: number;
+  cache_hit: boolean;
+  anchor_id: string;
+  utility: number;
+  priority: number;
+  compression_ratio?: number | null;
+  finish_reason: string;
+  text_preview: string;
+};
+
 type FigureSpec = {
   id: string;
   title: string;
@@ -80,11 +104,39 @@ const asNumber = (value: unknown, fallback = 0) => {
 
 const formatMs = (value: number) => `${value.toFixed(value >= 100 ? 0 : 1)} ms`;
 
+const timeLabel = (timestamp: string) => {
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime())
+    ? "just now"
+    : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+};
+
 const shortVariant = (variant: string) =>
   variant
     .replace("mobilora_", "mobi_")
     .replace("plain_peft", "plain")
     .replace("prefix_only", "prefix");
+
+function formatLivePayload(payload: Record<string, unknown>) {
+  const record = payload.live_record && typeof payload.live_record === "object"
+    ? (payload.live_record as Record<string, unknown>)
+    : {};
+  const meta = payload.meta_info && typeof payload.meta_info === "object"
+    ? (payload.meta_info as Record<string, unknown>)
+    : {};
+  return pretty({
+    text: payload.text,
+    ttft_ms: payload.ttft_ms,
+    e2e_ms: payload.e2e_ms,
+    cache_hit: record.cache_hit,
+    reuse_tokens: record.reuse_tokens ?? meta.mobilora_hit_tokens ?? meta.cached_tokens,
+    anchor_id: record.anchor_id ?? meta.mobilora_anchor_id,
+    utility: record.utility ?? meta.mobilora_utility,
+    app_state: record.app_state ?? meta.mobilora_app_state,
+    finish_reason: record.finish_reason,
+    live_log_path: payload.live_log_path,
+  });
+}
 
 function pickMobiRows(rows: ResultRow[]) {
   return rows
@@ -292,11 +344,59 @@ function TraceEvidence({ traces }: { traces: TraceItem[] }) {
   );
 }
 
+function LiveHistory({ records }: { records: LiveRecord[] }) {
+  const latest = records[0];
+
+  return (
+    <div className="live-history">
+      <div className="mini-header">
+        <div>
+          <span className="section-label">Live request ledger</span>
+          <h3>Changes after Send live request</h3>
+        </div>
+        <span className="live-count">{records.length} saved</span>
+      </div>
+      {!latest ? (
+        <p className="empty-note">
+          No live prompt has been recorded yet. Send a request and this panel will update
+          without changing the reproducible benchmark CSV.
+        </p>
+      ) : (
+        <>
+          <article className="live-snapshot">
+            <span>{timeLabel(latest.timestamp)} · {latest.variant} · {latest.app_state}</span>
+            <strong>{formatMs(asNumber(latest.ttft_ms))} TTFT</strong>
+            <p>
+              anchor {latest.anchor_id || "none"} · reuse {latest.reuse_tokens} tokens ·{" "}
+              {latest.cache_hit ? "cache hit" : "cache miss"} · session {latest.session_id}
+            </p>
+          </article>
+          <div className="live-record-list">
+            {records.slice(0, 4).map((record, index) => (
+              <article className="live-record" key={`${record.timestamp}-${record.request_id}-${index}`}>
+                <div>
+                  <strong>{record.app_id}</strong>
+                  <p>{record.lora_name || "no adapter"} · {record.finish_reason || "running"}</p>
+                </div>
+                <div>
+                  <span>{formatMs(asNumber(record.e2e_ms))} e2e</span>
+                  <p>{record.completion_tokens} new tokens</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function App() {
   const [status, setStatus] = useState<StatusItem[]>([]);
   const [summary, setSummary] = useState<Record<string, unknown>>({});
   const [traces, setTraces] = useState<TraceItem[]>([]);
   const [rows, setRows] = useState<ResultRow[]>([]);
+  const [liveRecords, setLiveRecords] = useState<LiveRecord[]>([]);
   const [response, setResponse] = useState<string>("No request yet.");
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
@@ -314,16 +414,18 @@ export function App() {
   }, []);
 
   async function refresh() {
-    const [statusRes, summaryRes, tracesRes, rowsRes] = await Promise.all([
+    const [statusRes, summaryRes, tracesRes, rowsRes, liveRes] = await Promise.all([
       fetch("/api/server-status").then((res) => res.json()),
       fetch("/api/results/summary").then((res) => res.json()),
       fetch("/api/results/traces").then((res) => res.json()),
       fetch("/api/results/rows").then((res) => res.json()),
+      fetch("/api/live/requests").then((res) => res.json()),
     ]);
     setStatus(statusRes.items ?? []);
     setSummary(summaryRes);
     setTraces(tracesRes.items ?? []);
     setRows(rowsRes.rows ?? []);
+    setLiveRecords(liveRes.items ?? []);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -336,8 +438,11 @@ export function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
       const payload = await res.json();
-      setResponse(pretty(payload));
+      setResponse(formatLivePayload(payload));
       await refresh();
     } catch (error) {
       setResponse(String(error));
@@ -361,7 +466,7 @@ export function App() {
             <strong>MobiLoRA Lab</strong>
           </div>
           <div className="topbar-actions">
-            <span>{rows.length} result rows</span>
+            <span>{rows.length} result rows · {liveRecords.length} live prompts</span>
             <button className="ghost-button" onClick={() => void refresh()}>
               Refresh data
             </button>
@@ -376,6 +481,10 @@ export function App() {
               The dashboard reads local benchmark CSVs and request traces, then
               rebuilds the paper's memory, quality, and TTFT views from the data
               your SGLang service just produced.
+            </p>
+            <p className="hero-note">
+              Live prompts are stored separately, so quick demos update the live
+              ledger without contaminating paper benchmark aggregates.
             </p>
             <div className="hero-pills">
               {baselines.map((item) => (
@@ -562,6 +671,8 @@ export function App() {
                 prefix hits, delta compression, and anchor selection.
               </p>
             </div>
+            <LiveHistory records={liveRecords} />
+            <div className="trace-divider" />
             <TraceEvidence traces={traces} />
           </article>
         </section>
