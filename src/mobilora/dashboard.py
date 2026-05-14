@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import csv
 from pathlib import Path
 
 from mobilora.config import load_config
@@ -212,6 +213,16 @@ def _read_json_if_exists(path: Path) -> dict[str, object]:
         return {}
 
 
+def _read_csv_if_exists(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            return list(csv.DictReader(handle))
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def create_dashboard_app(config: AppConfig, results_dir: Path | None = None):
     from fastapi import Body, FastAPI
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -256,6 +267,18 @@ def create_dashboard_app(config: AppConfig, results_dir: Path | None = None):
                 return payload
         return {"detail": "No summary file found yet."}
 
+    @app.get("/api/results/rows")
+    async def results_rows() -> dict[str, object]:
+        candidates = [
+            result_root / "paper_local" / "paper_results.csv",
+            result_root / "results.csv",
+        ]
+        for candidate in candidates:
+            rows = _read_csv_if_exists(candidate)
+            if rows:
+                return {"source": str(candidate), "rows": rows}
+        return {"source": "", "rows": []}
+
     @app.get("/api/results/traces")
     async def results_traces() -> dict[str, object]:
         trace_candidates: list[Path] = []
@@ -270,10 +293,12 @@ def create_dashboard_app(config: AppConfig, results_dir: Path | None = None):
             return {"items": []}
         items = []
         for path in trace_candidates[:6]:
-            lines = path.read_text(encoding="utf-8").splitlines()[:3]
+            all_lines = path.read_text(encoding="utf-8").splitlines()
+            lines = all_lines[:120]
             items.append(
                 {
                     "name": path.name,
+                    "row_count": len(all_lines),
                     "rows": [json.loads(line) for line in lines if line.strip()],
                 }
             )
